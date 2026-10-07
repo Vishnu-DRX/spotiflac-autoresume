@@ -82,7 +82,8 @@ Then open `config.toml` and check `app_exe` points at your `SpotiFLAC.exe`
 ## Day-to-day
 
 ```powershell
-scripts\autoresume.ps1 status        # task, watcher, queue counts, next resume time
+scripts\autoresume.ps1 status        # is it on? what is it doing? queue + recent log lines
+scripts\autoresume.ps1 watch         # same, but a live view refreshing every 2 s (Ctrl+C to exit)
 scripts\autoresume.ps1 pause         # watcher stays up, takes no action
 scripts\autoresume.ps1 resume        # un-pause the watcher
 scripts\autoresume.ps1 resume-now    # press Resume All once, right now
@@ -93,12 +94,20 @@ scripts\autoresume.ps1 stop|start|restart
 Example `status` output:
 
 ```text
-scheduled task : Running
-watcher process: running
-SpotiFLAC running: True
-queue item 'Vault_drx': status=running total=777 done=166 skipped=215 failed=8 untouched=388
-pending resume at: none | retries: 0 | breaks seen: 0
+● ACTIVE  watching, last check 0m 13s ago
+
+Doing   : Server on a scheduled break: will resume at 04:32 (in 1h 55m), attempt 1/6
+Sync    : off
+SpotiFLAC: running   |   breaks seen: 2   |   retries: 0
+Queue   : 'Vault_drx' [partial] 0 done, 392 skipped, 1 failed, 384 to go of 777
+
+Recent  :
+  2026-10-08 02:31:31 server break announced (119 min); will resume at 04:32
 ```
+
+The first line is the answer to "is it on?": **● ACTIVE** (green), **◐ PAUSED** (yellow) or
+**○ NOT RUNNING** (red). It's based on a heartbeat the watcher writes every cycle, so a hung
+watcher shows up as not running instead of looking fine.
 
 ## Configuration
 

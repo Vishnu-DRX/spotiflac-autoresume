@@ -5,7 +5,7 @@
   .\autoresume.ps1 status
 #>
 param([Parameter(Mandatory)]
-      [ValidateSet('status','pause','resume','start','stop','restart','logs','resume-now')]
+      [ValidateSet('status','watch','pause','resume','start','stop','restart','logs','resume-now')]
       [string]$Cmd)
 
 $root = Split-Path $PSScriptRoot -Parent
@@ -34,8 +34,8 @@ switch ($Cmd) {
     'resume-now' { Invoke-Cli 'resume-now' }
     'status'  {
         $t = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-        Write-Host ("scheduled task : " + $(if ($t) { $t.State } else { 'NOT INSTALLED' }))
-        Write-Host ("watcher process: " + $(if (Get-Watcher) { 'running' } else { 'not running' }))
+        if (-not $t) { Write-Host 'Scheduled task is NOT INSTALLED - run scripts\install.ps1' -ForegroundColor Red }
         Invoke-Cli 'status'
     }
+    'watch'   { Invoke-Cli 'watch' }
 }

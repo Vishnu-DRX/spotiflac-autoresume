@@ -165,3 +165,9 @@ def test_resume_unexplained_pauses_when_enabled(env):
     watcher.tick(cfg, st)
     watcher.tick(cfg, st)
     assert state["presses"] == 1
+
+
+def test_duration_formatting():
+    assert watcher._dur(75) == "1m 15s"
+    assert watcher._dur(2 * 3600 + 5 * 60) == "2h 05m"
+    assert watcher._dur(-5) == "0m 00s"

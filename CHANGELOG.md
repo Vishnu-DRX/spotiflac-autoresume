@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- `status` now leads with a clear ACTIVE / PAUSED / NOT RUNNING verdict (heartbeat-based), says what the
+  watcher is doing and when the next resume or sync is due; new live `watch` view.
 - Optional playlist sync (`[sync]`: `interval` or `on_idle` mode); add-only.
 - Handles what the app actually does at a break: the item ends as *Completed with Issues*
   (status `partial`) with no Resume All, so the watcher presses the row's retry arrow and,

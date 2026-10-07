@@ -6,6 +6,7 @@ Resume in the app. Nothing here talks to the download servers.
 
     python -m spotiflac_autoresume run          # the loop (what the scheduled task runs)
     python -m spotiflac_autoresume status       # read-only summary
+    python -m spotiflac_autoresume watch        # same, live-refreshing
     python -m spotiflac_autoresume probe        # read-only: show break log lines + queue buttons
     python -m spotiflac_autoresume resume-now   # press Resume once, right now
 """
@@ -275,6 +276,7 @@ def run():
     paused_logged = False
     while True:
         cfg = load_cfg()
+        beat()
         try:
             if PAUSE_PATH.exists():
                 if not paused_logged:
@@ -289,28 +291,118 @@ def run():
             log.warning("tick failed: %s: %s", type(e).__name__, e)
         except Exception:
             log.exception("unexpected error")
+        beat()
         time.sleep(cfg["watch"]["poll_seconds"])
 
 
-def status():
+HEARTBEAT_PATH = HERE / "heartbeat"
+ALIVE_WITHIN = 300      # a tick can take ~2 min (UI work + 40 s settle wait); 5 min of silence = dead
+
+
+def beat():
+    try:
+        HEARTBEAT_PATH.write_text(str(time.time()))
+    except OSError:
+        pass
+
+
+def heartbeat_age():
+    try:
+        return time.time() - float(HEARTBEAT_PATH.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _dur(sec):
+    sec = int(max(sec, 0))
+    h, m = sec // 3600, sec % 3600 // 60
+    return f"{h}h {m:02d}m" if h else f"{m}m {sec % 60:02d}s"
+
+
+def render_status(color=True):
+    """Human-readable snapshot: a verdict line, what it is doing, the queue, recent log lines."""
+    c = (lambda code, t: f"\x1b[{code}m{t}\x1b[0m") if color else (lambda code, t: t)
     cfg, st = load_cfg(), load_state()
-    print("watcher paused (PAUSE file):", PAUSE_PATH.exists())
-    print("SpotiFLAC running:", app_running())
-    for i in load_items(cfg):
-        print(f"queue item {i['name']!r}: status={i['status']} total={i['total']} "
-              f"done={i['done']} skipped={i['skipped']} failed={i['failed']} "
-              f"untouched={i['total'] - i['done'] - i['skipped'] - i['failed']}")
+    age = heartbeat_age()
+    if age is None or age > ALIVE_WITHIN:
+        verdict = c(31, "○ NOT RUNNING") + (f"  (no heartbeat for {_dur(age)})" if age else "  (never started)")
+        verdict += "\n  start it with: scripts\\autoresume.ps1 start"
+    elif PAUSE_PATH.exists():
+        verdict = c(33, "◐ PAUSED") + "  watcher is up but taking no action (scripts\\autoresume.ps1 resume)"
+    else:
+        verdict = c(32, "● ACTIVE") + f"  watching, last check {_dur(age)} ago"
+
+    lines = [verdict, ""]
+    try:
+        items = load_items(cfg)
+    except (OSError, ValueError, KeyError) as e:
+        items = []
+        lines.append(c(31, f"cannot read queue.db: {e}"))
+    now = time.time()
+    active = [i for i in items if i["status"] in ACTIVE]
+    stalled = [i for i in items if i["status"] not in ACTIVE | FINISHED]
     ra = st.get("resume_at")
-    print("pending resume at:", time.strftime("%H:%M:%S", time.localtime(ra)) if ra else "none",
-          "| retries:", st.get("retries"), "| breaks seen:", st.get("break_count"))
+    if active:
+        doing = f"Downloading {active[0]['name']!r}"
+    elif ra:
+        doing = (f"Server on a scheduled break: will resume at {time.strftime('%H:%M', time.localtime(ra))} "
+                 f"(in {_dur(ra - now)}), attempt {st.get('retries', 0) + 1}/{cfg['watch']['max_retries_per_batch']}")
+    elif stalled:
+        doing = "Queue stopped with no server break in the logs: leaving it alone"
+    else:
+        doing = "Idle: nothing to do"
+    lines.append("Doing   : " + doing)
+    sy = cfg.get("sync", {})
+    if sy.get("enabled") and sy.get("playlists"):
+        mode = sy.get("mode", "interval")
+        wait = (sy.get("interval_hours", 6) * 3600 if mode == "interval"
+                else sy.get("on_idle_cooldown_minutes", 30) * 60)
+        nxt = st.get("last_sync", 0) + wait - now
+        lines.append(f"Sync    : {mode}, {len(sy['playlists'])} playlist(s), "
+                     + ("due now (when idle)" if nxt <= 0 else f"next in {_dur(nxt)}"))
+    else:
+        lines.append("Sync    : off")
+    lines.append(f"SpotiFLAC: {'running' if app_running() else 'closed'}"
+                 f"   |   breaks seen: {st.get('break_count', 0)}   |   retries: {st.get('retries', 0)}")
+    for i in items:
+        left = i["total"] - i["done"] - i["skipped"] - i["failed"]
+        lines.append(f"Queue   : {i['name']!r} [{i['status']}] {i['done']} done, {i['skipped']} skipped, "
+                     f"{i['failed']} failed, {left} to go of {i['total']}")
+    try:
+        tail = (HERE / "watcher.log").read_text(encoding="utf-8").splitlines()[-4:]
+        lines += ["", "Recent  :"] + ["  " + t for t in tail]
+    except OSError:
+        pass
+    return "\n".join(lines)
+
+
+def status():
+    print(render_status(color=sys.stdout.isatty()))
+
+
+def watch(every=2):
+    """Live view: redraw the status every few seconds until Ctrl+C."""
+    try:
+        while True:
+            print("\x1b[2J\x1b[H" + render_status() + "\n\n" + "(refreshing every "
+                  f"{every}s, Ctrl+C to exit)", flush=True)
+            time.sleep(every)
+    except KeyboardInterrupt:
+        pass
 
 
 def main():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # legacy consoles are cp1252
+    except (AttributeError, ValueError):
+        pass                                                         # pythonw has no stdout
     cmd = sys.argv[1] if len(sys.argv) > 1 else "run"
     if cmd == "run":
         run()
     elif cmd == "status":
         status()
+    elif cmd == "watch":
+        watch()
     elif cmd == "probe":
         with ui.Session() as s:
             print("break events:", s.break_events())
