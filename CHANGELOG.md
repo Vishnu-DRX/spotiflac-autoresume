@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- `menu.bat`: interactive text menu (status, pause/resume, resume now, sync now, view/edit config, logs,
+  start/stop/restart, uninstall); new `config` and `sync-now` commands.
 - `status` now leads with a clear ACTIVE / PAUSED / NOT RUNNING verdict (heartbeat-based), says what the
   watcher is doing and when the next resume or sync is due; new live `watch` view.
 - Optional playlist sync (`[sync]`: `interval` or `on_idle` mode); add-only.

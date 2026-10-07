@@ -81,6 +81,11 @@ Then open `config.toml` and check `app_exe` points at your `SpotiFLAC.exe`
 
 ## Day-to-day
 
+**Easiest:** double-click **`menu.bat`** for a numbered menu (live status, pause/resume, press
+Resume now, sync now, view/edit config, logs, start/stop, uninstall). No commands to remember.
+
+Or from a terminal:
+
 ```powershell
 scripts\autoresume.ps1 status        # is it on? what is it doing? queue + recent log lines
 scripts\autoresume.ps1 watch         # same, but a live view refreshing every 2 s (Ctrl+C to exit)

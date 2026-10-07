@@ -380,6 +380,25 @@ def status():
     print(render_status(color=sys.stdout.isatty()))
 
 
+def show_config():
+    """Print the settings the watcher is really using, flagging paths that don't exist."""
+    cfg = load_cfg()
+    print(f"Config file: {CFG_PATH}\n")
+    for section, values in cfg.items():
+        print(f"[{section}]")
+        for key, val in values.items():
+            note = ""
+            if section == "paths":
+                note = "" if Path(val).exists() else "   <-- NOT FOUND"
+            if isinstance(val, list):
+                print(f"  {key} = " + ("(none)" if not val else ""))
+                for v in val:
+                    print(f"      - {v}")
+                continue
+            print(f"  {key} = {val}{note}")
+        print()
+
+
 def watch(every=2):
     """Live view: redraw the status every few seconds until Ctrl+C."""
     try:
@@ -403,10 +422,26 @@ def main():
         status()
     elif cmd == "watch":
         watch()
+    elif cmd == "config":
+        show_config()
     elif cmd == "probe":
         with ui.Session() as s:
             print("break events:", s.break_events())
             print("queue buttons:", s.queue_buttons())
+    elif cmd == "sync-now":
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        cfg = load_cfg()
+        urls = cfg.get("sync", {}).get("playlists", [])
+        if not urls:
+            print("No playlists configured: add them under [sync] playlists in config.toml")
+        elif any(i["status"] in ACTIVE for i in load_items(cfg)):
+            print("Downloads are running: sync only starts when the queue is idle")
+        elif ensure_app(cfg):
+            readd(urls)
+            st = load_state()
+            st["last_sync"], st["fp"] = time.time(), None
+            save_state(st)
+            print("Done. The app skips files it already has; only new tracks download.")
     elif cmd == "resume-now":
         logging.basicConfig(level=logging.INFO, format="%(message)s")
         do_resume(load_cfg(), load_state())
