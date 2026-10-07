@@ -1,0 +1,14 @@
+# personal / runtime files - never commit
+config.toml
+state.json
+watcher.log*
+PAUSE
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.venv/

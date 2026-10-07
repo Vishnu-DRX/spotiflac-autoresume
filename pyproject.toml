@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spotiflac-autoresume"
+version = "0.1.0"
+description = "Resume the SpotiFLAC download queue automatically after a server's scheduled break."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["pywinauto>=0.6.8; sys_platform == 'win32'"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+spotiflac-autoresume = "spotiflac_autoresume.watcher:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
