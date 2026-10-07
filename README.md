@@ -9,7 +9,7 @@ When a server takes its scheduled break, this waits it out and hits **Resume** f
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)
 ![SpotiFLAC v7.x](https://img.shields.io/badge/SpotiFLAC-v7.x-1db954)
-![Tests: 19 passing](https://img.shields.io/badge/tests-24%20passing-brightgreen)
+![Tests: 25 passing](https://img.shields.io/badge/tests-25%20passing-brightgreen)
 
 </div>
 
@@ -36,10 +36,11 @@ flowchart LR
     A([Queue stops]) --> B{Break message<br/>in SpotiFLAC's logs?}
     B -- no --> C[Leave it alone<br/>you paused it]
     B -- "yes: 'try again in ~N min'" --> D[Wait N min + 2 min margin]
-    D --> E[Press Resume All]
+    D --> E["Press Resume All<br/>or the row's retry arrow"]
     E --> F{Queue running?}
     F -- yes --> G([Downloads continue])
-    F -- "no, still on break" --> B
+    F -- "no" --> H[Re-add the playlist<br/>existing files are skipped]
+    H --> B
 ```
 
 - ⏱️ **Waits the time the server announced.** No guessing a schedule, no hammering servers.
@@ -48,7 +49,11 @@ flowchart LR
 - 🙋 **Respects your pauses.** If you paused the queue yourself, it stays paused.
 - 🚀 **Autolaunches SpotiFLAC** (minimized) if it's closed while work remains.
 - 🔔 **Tray notification** when it resumes, or gives up.
-- 🧰 **Easy off switch:** pause, stop, or uninstall with one command.
+- 📟 **Always know its state.** `status` / `watch` open with ● ACTIVE, ◐ PAUSED or ○ NOT RUNNING,
+  and say what it's doing and when it will resume.
+- 🧭 **A menu, not commands to remember.** Double-click `menu.bat`.
+- 🔄 **Optional playlist sync:** re-add playlists on a schedule so new tracks get downloaded.
+- 🧰 **Easy off switch:** pause, stop, or uninstall from the menu or one command.
 
 > [!NOTE]
 > Unofficial and unaffiliated with SpotiFLAC or any music service. It only operates the app's
@@ -91,7 +96,9 @@ scripts\autoresume.ps1 status        # is it on? what is it doing? queue + recen
 scripts\autoresume.ps1 watch         # same, but a live view refreshing every 2 s (Ctrl+C to exit)
 scripts\autoresume.ps1 pause         # watcher stays up, takes no action
 scripts\autoresume.ps1 resume        # un-pause the watcher
-scripts\autoresume.ps1 resume-now    # press Resume All once, right now
+scripts\autoresume.ps1 resume-now    # press Resume All (or the retry arrow) once, right now
+python -m spotiflac_autoresume config     # show the settings in use (needs PYTHONPATH=src)
+python -m spotiflac_autoresume sync-now   # sync the configured playlists once
 scripts\autoresume.ps1 logs          # last 40 lines of watcher.log
 scripts\autoresume.ps1 stop|start|restart
 ```
@@ -116,7 +123,8 @@ watcher shows up as not running instead of looking fine.
 
 ## Configuration
 
-Edit `config.toml`, then `scripts\autoresume.ps1 restart`.
+Edit `config.toml` (menu option **7**, or any editor); the menu restarts the watcher for you afterwards.
+Menu option **C** shows the settings actually in use and flags paths that don't exist.
 
 <details>
 <summary><b>All options</b></summary>
@@ -132,6 +140,11 @@ Edit `config.toml`, then `scripts\autoresume.ps1 restart`.
 | `watch.max_retries_per_batch` | `6` | Give up after this many resumes with no progress |
 | `watch.resume_unexplained_pauses` | `false` | Also resume pauses with no break in the logs |
 | `watch.dry_run` | `false` | Log what would be clicked, click nothing |
+| `sync.enabled` | `false` | Turn on [playlist sync](#-optional-playlist-sync) |
+| `sync.mode` | `interval` | `interval` (every N hours) or `on_idle` (whenever the queue is empty) |
+| `sync.interval_hours` | `6` | Gap between syncs in `interval` mode |
+| `sync.on_idle_cooldown_minutes` | `30` | Minimum gap between syncs in `on_idle` mode |
+| `sync.playlists` | `[]` | Spotify playlist URLs to keep in sync |
 | `autolaunch.enabled` | `true` | Start SpotiFLAC (minimized) if closed and work remains |
 | `notify.enabled` | `true` | Tray balloon on resume / give-up |
 
@@ -169,13 +182,14 @@ arrow doesn't restart the queue.
 
 ## How it works
 
-SpotiFLAC v7 is a GUI-only app (no CLI or API), so the watcher uses two things:
+SpotiFLAC v7 is a GUI-only app (no CLI or API), so the watcher combines three things:
 
 | Need | How |
 |---|---|
 | Is the queue stalled? | Reads `~/.spotiflac/queue.db` (a Go *bbolt* file) read-only with a small built-in parser |
 | Why did it stop? | Reads the app's **Debug Logs** page through Windows UI Automation |
-| Resume it | Invokes **Resume All** on the **Queue** page (UIA invoke, no simulated mouse) |
+| Resume it | Invokes **Resume All** on the **Queue** page, or, after a break (the item ends as *Completed with Issues*), the row's **retry arrow**. Never the remove button. UIA invoke, no simulated mouse |
+| Last resort | Fetches the playlist URL again and presses **Add to Queue**; files already on disk are skipped |
 
 UI sessions only happen when the queue is stalled, never while downloads run. Full write-up
 with the decision loop: **[docs/how-it-works.md](docs/how-it-works.md)**.
@@ -210,13 +224,14 @@ versions.
 
 ```powershell
 python -m pip install -e ".[dev]"
-python -m pytest                                          # 24 tests, no app needed
+python -m pytest                                          # 25 tests, no app needed
 set PYTHONPATH=src && python tools\focus_check.py         # manual: proves no focus theft
 ```
 
 ```text
-src/spotiflac_autoresume/   watcher.py (loop + decisions) · ui.py (UI Automation) · bbolt_read.py
-scripts/                    install / uninstall / autoresume (PowerShell)
+menu.bat                    double-click control menu (runs scripts/menu.ps1)
+src/spotiflac_autoresume/   watcher.py (loop, decisions, status) · ui.py (UI Automation) · bbolt_read.py
+scripts/                    install / uninstall / autoresume / menu (PowerShell)
 tests/  docs/  tools/       tests · how-it-works + troubleshooting · dev helpers
 ```
 

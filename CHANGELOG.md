@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Docs: README, how-it-works and troubleshooting brought in line with the post-break behaviour, sync,
+  heartbeat status and menu.
 - `menu.bat`: interactive text menu (status, pause/resume, resume now, sync now, view/edit config, logs,
   start/stop/restart, uninstall); new `config` and `sync-now` commands.
 - `status` now leads with a clear ACTIVE / PAUSED / NOT RUNNING verdict (heartbeat-based), says what the

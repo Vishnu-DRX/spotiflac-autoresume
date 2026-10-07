@@ -1,41 +1,66 @@
 # Troubleshooting
 
-Start with `scripts\autoresume.ps1 status` and `scripts\autoresume.ps1 logs`.
+Start with **`menu.bat`** (live status, recent log) or `scripts\autoresume.ps1 status` / `logs`.
+Developer commands below need `PYTHONPATH=src` (set it with `$env:PYTHONPATH='src'` in PowerShell).
+
+## The status says ○ NOT RUNNING
+The watcher hasn't written a heartbeat for 5+ minutes: it isn't running, or it's hung.
+`scripts\autoresume.ps1 restart` (menu: **R**). If it dies again, read `watcher.log`. Check the
+scheduled task exists: `Get-ScheduledTask SpotiFLAC-AutoResume`; if not, re-run `scripts\install.ps1`.
+Moved the project folder? Re-run `install.ps1` too (the task stores absolute paths).
 
 ## "queue stopped (['paused']) but no new server break in the logs; leaving it alone"
-Working as intended: the queue is paused but SpotiFLAC's logs show no break, so the watcher
-assumes you paused it. Resume it yourself (`scripts\autoresume.ps1 resume-now`), or set
-`resume_unexplained_pauses = true` to let the watcher resume any pause.
+Working as intended: the queue is stopped but SpotiFLAC's logs show no break, so the watcher assumes
+you paused it. Resume it yourself (menu **4**), or set `resume_unexplained_pauses = true` to let the
+watcher resume any pause.
 
-## The break happened but nothing resumed
-1. `python -m spotiflac_autoresume probe` (with `PYTHONPATH=src`). It prints the break messages
-   found on the Debug Logs page and the buttons visible on the Queue page.
+## A break happened but nothing resumed
+1. `python -m spotiflac_autoresume probe` prints the break messages found on the Debug Logs page and
+   the buttons visible on the Queue page.
 2. No break events but the app shows one: the message wording may have changed. Adjust
    `watch.break_pattern`.
-3. Log says `pressed 'Resume All'` then `did not start the queue`: the server was still down, or
-   the app finished the item with failed tracks rather than pausing it, and Resume All doesn't
-   retry them. Open an issue with `watcher.log` and the queue buttons from `probe`.
-4. `giving up after N resumes`: raise `max_retries_per_batch`, or the server is down for longer
-   than a normal scheduled break.
+3. `Doing:` in `status` says "will resume at HH:MM" → it's simply waiting. The wait is the announced
+   time + `safety_margin_minutes`.
+4. Log says `pressed 'row retry arrow x1'` then `did not start the queue` and
+   `falling back to re-adding`: the server was still down, or the retry only covers failed tracks.
+   The fallback re-adds the playlist; if the break is still on it will simply stop again, and the
+   watcher will read the new message and wait again.
+5. `no resume/retry control found; queue page buttons: [...]`: the layout differs from v7.2.2.
+   Open an issue with that list and your `watcher.log`.
+6. `giving up after N resumes`: raise `max_retries_per_batch`, or the server is down for longer than a
+   normal scheduled break.
+
+## After a break the Queue shows "Completed with Issues" and no Resume All
+Expected. That's how SpotiFLAC ends a batch at a break (see
+[how-it-works](how-it-works.md#what-the-app-does-at-a-break-observed)). The watcher presses the row's
+retry arrow instead of Resume All. If you do it by hand, use the arrow, not the red button.
 
 ## `sidebar button for 'X' not found` / `web content pane not found`
-The app's layout differs from v7.2.2 or the window isn't reachable. Run
-`python tools\dump_ui.py` (with `PYTHONPATH=src`) to dump the UI Automation tree and compare.
-Only fully minimized-to-tray states hide the pane; keep the window in the taskbar.
+The app's layout differs from v7.2.2 or the window isn't reachable. Run `python tools\dump_ui.py`
+to dump the UI Automation tree and compare. Keep the window in the taskbar (minimized is fine);
+a window hidden in the tray may expose no tree.
+
+## Playlist sync
+- **Nothing happens:** `sync.enabled = true`, at least one URL under `sync.playlists`, and the watcher
+  restarted? Menu **C** shows what's loaded; `status` shows `Sync: ...next in ...`. Sync waits for an
+  idle queue and for any pending break wait.
+- **Run it now:** menu **5**, or `python -m spotiflac_autoresume sync-now`.
+- **Tracks downloaded twice (duplicates):** your filename template contains the playlist position
+  (`{track}. {title}`) and a track was inserted mid-playlist or the playlist was re-ordered, so names
+  no longer match. Use a title/artist-based template, or only append tracks at the end.
+- **Removed tracks stay on disk:** by design, sync is add-only.
+- **`fetch did not produce an 'Add to Queue' button`:** the URL is wrong/private, or Spotify metadata
+  fetching failed in the app; try the same URL by hand on the Home page.
 
 ## Focus flickers
-A UI session moves focus to SpotiFLAC and straight back. Sessions only happen when the queue
-stalls, not while downloading. Verify with `tools\focus_check.py`. If Windows blocks the focus
-hand-back (some full-screen games), the app window stays minimized but may hold focus until
-you click elsewhere.
+A UI session moves focus to SpotiFLAC and straight back. Sessions only happen when the queue stalls or
+a sync is due, never while downloading. Verify with `python tools\focus_check.py`. If Windows blocks
+the hand-back (some full-screen games), the app stays minimized but may hold focus until you click
+elsewhere.
 
 ## Autolaunch opens SpotiFLAC in front
-It starts minimized (`SW_SHOWMINNOACTIVE`) and is minimized again if it ignores the hint. If
-that fails, set `autolaunch.enabled = false` and launch it yourself.
-
-## The task isn't running after reboot
-`Get-ScheduledTask SpotiFLAC-AutoResume`. It triggers at logon of the installing user. Re-run
-`scripts\install.ps1`. If you moved the project folder, re-run it too (the task stores paths).
+It starts minimized (`SW_SHOWMINNOACTIVE`) and is minimized again if it ignores the hint. If that
+fails, set `autolaunch.enabled = false` and launch it yourself.
 
 ## Reset
-`scripts\autoresume.ps1 stop`, delete `state.json`, `scripts\autoresume.ps1 start`.
+Menu **9** (stop), delete `state.json`, menu **8** (start).
