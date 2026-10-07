@@ -17,6 +17,18 @@ max_retries_per_batch     = 6      # give up after this many resumes without any
 resume_unexplained_pauses = false  # true = also resume pauses that show no break in the logs
 dry_run                   = false  # true = log what would be clicked, click nothing
 
+[sync]
+# Optional playlist sync: re-add these playlists so tracks you've added since the last run get
+# downloaded. SpotiFLAC skips files it already has, so only new tracks cost anything.
+# Only runs when nothing is downloading and no server break is pending.
+enabled  = false
+mode     = "interval"      # "interval" = every interval_hours | "on_idle" = whenever the queue is empty
+interval_hours           = 6      # mode = "interval"
+on_idle_cooldown_minutes = 30     # mode = "on_idle": minimum gap between syncs
+playlists = [
+    # "https://open.spotify.com/playlist/xxxxxxxxxxxxxxxxxxxxxx",
+]
+
 [autolaunch]
 enabled      = true   # start SpotiFLAC (minimized) if it is closed while the queue has unfinished items
 wait_seconds = 25     # how long to let its window come up

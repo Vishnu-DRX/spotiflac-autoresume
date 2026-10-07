@@ -117,10 +117,66 @@ def do_resume(cfg, st):
     with ui.Session() as s:
         clicked = s.click_queue_button("Resume All", "Retry All", "Resume", "Retry")
         if not clicked:
-            log.warning("no resume button found; queue page buttons: %s", s.queue_buttons())
+            # a break ends the item as "Completed with Issues": no Resume All, only the row's retry arrow
+            n = s.click_row_retry()
+            if n:
+                clicked = f"row retry arrow x{n}"
+        if not clicked:
+            log.warning("no resume/retry control found; queue page buttons: %s", s.queue_buttons())
             return False
     log.info("pressed %r", clicked)
     return True
+
+
+def recent_url(name):
+    """URL SpotiFLAC remembers for a fetched item name (its recent_fetches.json)."""
+    path = Path(os.path.expanduser("~/.spotiflac/recent_fetches.json"))
+    try:
+        for r in json.loads(path.read_text(encoding="utf-8")):
+            if r.get("name") == name and r.get("url"):
+                return r["url"]
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def readd(urls):
+    """Fetch each URL again and add it to the queue (existing files are skipped by the app)."""
+    done = []
+    for url in urls:
+        with ui.Session() as s:
+            res = s.add_to_queue(url)
+            if res == "already":
+                if not s.clear_queue():
+                    log.warning("could not clear the finished queue item for %s", url)
+                    continue
+                res = s.add_to_queue(url)
+        log.info("re-add %s -> %s", url, res)
+        done.append(res)
+    return done
+
+
+def sync_due(cfg, st, now=None):
+    sy = cfg.get("sync", {})
+    if not sy.get("enabled") or not sy.get("playlists"):
+        return False
+    now = now or time.time()
+    wait = (sy.get("interval_hours", 6) * 3600 if sy.get("mode", "interval") == "interval"
+            else sy.get("on_idle_cooldown_minutes", 30) * 60)
+    return now - st.get("last_sync", 0) >= wait
+
+
+def maybe_sync(cfg, st):
+    """Re-add the configured playlists when due. Callers guarantee no download is running
+    and no break wait is pending."""
+    if cfg["watch"]["dry_run"] or not sync_due(cfg, st):
+        return
+    st["last_sync"] = time.time()           # set first: a failure must not retry every tick
+    if not ensure_app(cfg):
+        return
+    log.info("playlist sync: %d playlist(s)", len(cfg["sync"]["playlists"]))
+    readd(cfg["sync"]["playlists"])
+    st["fp"] = None                          # new queue state -> re-read the logs if it stops
 
 
 def tick(cfg, st):
@@ -141,13 +197,14 @@ def tick(cfg, st):
 
     stalled = [i for i in items if i["status"] not in FINISHED]
     failed_done = [i for i in items if i["status"] in FINISHED and i["failed"] > 0]
-    unknown = {i["status"] for i in stalled} - {"paused", "failed", "error"}
+    unknown = {i["status"] for i in stalled} - {"paused", "failed", "error", "partial"}
     if unknown:
         log.info("unrecognised item status values: %s", sorted(unknown))
     if not stalled and not failed_done:
         st["resume_at"] = None
         st["retries"] = 0
         st["fp"] = fp
+        maybe_sync(cfg, st)
         return
 
     # Queue changed since last look (or a resume is pending): decide why it stopped.
@@ -193,8 +250,20 @@ def tick(cfg, st):
                      st["retries"])
             if ok:
                 notify(cfg, "SpotiFLAC auto-resume", "Server break over: downloads resumed.")
+            if not ok:
+                # Retry/Resume did nothing: fetch the playlist(s) again; the app skips files it
+                # already has, and a still-active break just stops the batch at the first real download.
+                urls = {recent_url(i["name"]) for i in after if i["status"] not in FINISHED} - {None}
+                if urls:
+                    log.info("falling back to re-adding %d playlist(s)", len(urls))
+                    readd(sorted(urls))
+                    ok = any(i["status"] in ACTIVE for i in load_items(cfg))
             # not started -> forget the fingerprint so the next tick re-reads the logs for a new break
-            st["fp"] = fingerprint(after) if ok else None
+            st["fp"] = fingerprint(load_items(cfg)) if ok else None
+        return
+
+    if st.get("resume_at") is None:
+        maybe_sync(cfg, st)
 
 
 def run():

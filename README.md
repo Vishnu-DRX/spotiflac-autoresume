@@ -9,7 +9,7 @@ When a server takes its scheduled break, this waits it out and hits **Resume** f
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)
 ![SpotiFLAC v7.x](https://img.shields.io/badge/SpotiFLAC-v7.x-1db954)
-![Tests: 19 passing](https://img.shields.io/badge/tests-19%20passing-brightgreen)
+![Tests: 19 passing](https://img.shields.io/badge/tests-24%20passing-brightgreen)
 
 </div>
 
@@ -123,6 +123,36 @@ Edit `config.toml`, then `scripts\autoresume.ps1 restart`.
 
 </details>
 
+## 🔄 Optional: playlist sync
+
+Turn the watcher into a small sync downloader for playlists you follow. Add a track to the
+playlist on Spotify and it's picked up automatically.
+
+```toml
+[sync]
+enabled   = true
+mode      = "interval"        # or "on_idle": sync whenever the queue goes empty
+interval_hours = 6
+playlists = [
+    "https://open.spotify.com/playlist/xxxxxxxxxxxxxxxxxxxxxx",
+]
+```
+
+Each sync re-fetches the playlist and presses **Add to Queue**. SpotiFLAC skips files it already
+has, so only new tracks are downloaded. A sync only starts when nothing is downloading and no
+server break is pending.
+
+> [!WARNING]
+> **Check your filename template.** "Already have it" is decided by filename. If your template
+> contains the playlist position (e.g. `{track}. {title}`), a track appended at the **end** is
+> fine, but a track inserted in the **middle**, or a re-ordered playlist, shifts the numbers and
+> files won't match, so they'd be downloaded again as duplicates. A title/artist-based template
+> avoids this.
+> Sync is **add-only**: removing a track from the playlist never deletes anything on disk.
+
+The same re-add is the watcher's last-resort fallback after a break, if pressing the row's retry
+arrow doesn't restart the queue.
+
 ## How it works
 
 SpotiFLAC v7 is a GUI-only app (no CLI or API), so the watcher uses two things:
@@ -147,11 +177,12 @@ SpotiFLAC, its queue and your music are never touched.
 
 ## Known limitations
 
-- **Live-break behaviour is the least-tested part.** The Resume click is verified on a paused
-  queue and the decision logic is covered by tests, but the first release was cut before a
-  real scheduled break had been observed end to end. If the app finishes an item with failed
-  tracks instead of pausing it, *Resume All* may not retry them.
-  See [troubleshooting](docs/troubleshooting.md) and please open an issue with your `watcher.log`.
+- **The post-break resume is the least-tested part.** Break *detection* has been verified on a real
+  scheduled break (message found, wait parsed, resume scheduled). After a break the app ends the item
+  as "Completed with Issues" with no *Resume All*; the watcher then presses the row's retry arrow and, if
+  the queue still doesn't start, re-adds the playlist. That chain is covered by tests but its first
+  live run is still pending, so please open an issue with your `watcher.log` if it misbehaves.
+  See [troubleshooting](docs/troubleshooting.md).
 - Relies on SpotiFLAC's UI layout (sidebar order, button names). A big redesign can break it;
   `python -m spotiflac_autoresume probe` shows what the watcher can see.
 - A resume flips Windows focus to the app and back (well under a second); a keystroke typed in
@@ -165,7 +196,7 @@ versions.
 
 ```powershell
 python -m pip install -e ".[dev]"
-python -m pytest                                          # 19 tests, no app needed
+python -m pytest                                          # 24 tests, no app needed
 set PYTHONPATH=src && python tools\focus_check.py         # manual: proves no focus theft
 ```
 

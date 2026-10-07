@@ -182,6 +182,108 @@ class Session:
         time.sleep(0.5)
         return [n for k, n in _content_texts(self.doc) if k == "Button"]
 
+    def add_to_queue(self, url, timeout=40):
+        """Fetch a Spotify URL on the Home page and press 'Add to Queue'.
+
+        Returns 'added', or 'already' when the app says it is already queued
+        (the caller can clear the finished item and try again).
+        """
+        goto(self.doc, "SpotiFLAC")
+        edit = next(iter(self.doc.descendants(control_type="Edit")), None)
+        if edit is None:
+            raise UiError("Home page URL box not found")
+        edit.set_edit_text(url)                        # UIA ValuePattern: no typing, no focus
+        fetch = next(d for d in _content_elements(self.doc) if d.element_info.name == "Fetch")
+        fetch.invoke()
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            time.sleep(1.5)
+            for d in _content_elements(self.doc):
+                if d.element_info.control_type == "Button":
+                    if d.element_info.name == "Add to Queue":
+                        d.invoke()
+                        return "added"
+                    if d.element_info.name == "Already in Queue":
+                        return "already"
+        raise UiError("fetch did not produce an 'Add to Queue' button in time")
+
+    def clear_queue(self, tab="Playlists"):
+        """Remove every queued item on one Queue tab (files already on disk are unaffected).
+
+        'Clear All' only affects the tab being shown, so the tab is selected explicitly first.
+        """
+        goto(self.doc, "Queue")
+        time.sleep(0.5)
+        tab_btn = next((d for d in _content_elements(self.doc)
+                        if d.element_info.control_type == "Button"
+                        and re.match(rf"{tab}(\s+\d+)?$", d.element_info.name)), None)
+        if tab_btn is None:
+            return False
+        tab_btn.invoke()
+        time.sleep(1.0)
+        if not self.click_queue_button("Clear All"):
+            return False
+        time.sleep(1.0)
+        buttons = [d for d in self.doc.descendants(control_type="Button")
+                   if d.element_info.name in ("Cancel", "Clear All")]
+        cancel = next((b for b in buttons if b.element_info.name == "Cancel"), None)
+        if cancel is None:
+            return False                              # no confirmation dialog appeared
+        ct = cancel.element_info.rectangle.top
+        confirm = [b for b in buttons if b.element_info.name == "Clear All"
+                   and abs(b.element_info.rectangle.top - ct) < 8]
+        if len(confirm) != 1:
+            cancel.invoke()                           # unsure which is which: back out safely
+            return False
+        confirm[0].invoke()
+        time.sleep(1.0)
+        return True
+
+    def click_row_retry(self):
+        """Press the retry arrow on every queue row that has one; returns how many were pressed.
+
+        After a server break the app ends the item as "Completed with Issues" and offers no
+        Resume All; the row's ACTIONS column then holds two unnamed icon buttons: retry (neutral)
+        and remove (class contains "text-destructive"). Only the neutral one is ever pressed.
+        """
+        goto(self.doc, "Queue")
+        time.sleep(0.5)
+        pressed = 0
+        tabs = [d for d in _content_elements(self.doc)
+                if d.element_info.control_type == "Button"
+                and re.match(r"(Tracks|Albums|Playlists|Artists)\s+\d+$", d.element_info.name)]
+        for tab in tabs:                      # only tabs that show an item count have rows
+            tab.invoke()
+            time.sleep(1.0)
+            pressed += self._press_row_retries()
+        return pressed
+
+    def _press_row_retries(self):
+        header = next((d for d in self.doc.descendants(control_type="DataItem")
+                       if d.element_info.name.upper() == "ACTIONS"), None)
+        if header is None:
+            return 0
+        hr = header.element_info.rectangle
+        rows = {}
+        for b in self.doc.descendants(control_type="Button"):
+            r = b.element_info.rectangle
+            if b.element_info.name or r.top <= hr.bottom or not (hr.left - 5 <= r.left <= hr.right):
+                continue
+            try:
+                cls = b.element_info.element.GetCurrentPropertyValue(30012) or ""
+            except Exception:
+                continue
+            if "text-destructive" in cls:
+                continue                      # remove button: never touch
+            rows.setdefault(round(r.top / 10), []).append((r.left, b))
+        pressed = 0
+        for _top, buttons in sorted(rows.items()):
+            buttons.sort(key=lambda t: t[0])
+            buttons[0][1].invoke()            # leftmost neutral icon = retry arrow
+            pressed += 1
+            time.sleep(0.5)
+        return pressed
+
     def click_queue_button(self, *names):
         """Click the first queue-page button whose name matches one of `names`, in priority order."""
         goto(self.doc, "Queue")
