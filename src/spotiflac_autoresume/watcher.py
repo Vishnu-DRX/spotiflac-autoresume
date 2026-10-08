@@ -221,6 +221,18 @@ def maybe_sync(cfg, st):
     st["fp"] = None                          # new queue state -> re-read the logs if it stops
 
 
+def event_epoch(hhmmss, now=None):
+    """Epoch seconds of the most recent occurrence of a log timestamp (HH:MM:SS, local time).
+
+    Log rows carry no date, so a time later than 'now' must be from yesterday.
+    """
+    now = now or time.time()
+    h, m, s = (int(x) for x in hhmmss.split(":"))
+    lt = time.localtime(now)
+    t = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, h, m, s, 0, 0, -1))
+    return t - 86400 if t > now + 60 else t
+
+
 def press_start(cfg, why):
     if cfg["watch"]["dry_run"]:
         log.info("[dry_run] would press Start (%s)", why)
@@ -309,14 +321,16 @@ def tick(cfg, st):
             return
         with ui.Session() as s:
             events = s.break_events(w["break_pattern"])
-        n = len(events)
-        if n < st["break_count"]:
-            st["break_count"] = n           # logs were cleared / app restarted
-        if n > st["break_count"]:
-            mins = events[-1][1] or w["default_wait_minutes"]
-            st["break_count"] = n
-            st["resume_at"] = time.time() + (mins + w["safety_margin_minutes"]) * 60
-            log.info("server break announced (%s min); will resume at %s", mins,
+        seen = st.setdefault("seen_breaks", [])
+        new = [e for e in events if e["key"] not in seen]
+        if new:
+            ev = new[-1]
+            mins = ev["minutes"] or w["default_wait_minutes"]
+            st["seen_breaks"] = (seen + [e["key"] for e in new])[-50:]
+            st["break_count"] = len(st["seen_breaks"])
+            # the wait runs from when the server announced it (its log timestamp), not from now
+            st["resume_at"] = event_epoch(ev["time"]) + (mins + w["safety_margin_minutes"]) * 60
+            log.info("server break announced at %s (%s min); will resume at %s", ev["time"], mins,
                      time.strftime("%H:%M", time.localtime(st["resume_at"])))
         elif stalled and w["resume_unexplained_pauses"]:
             st["resume_at"] = time.time()

@@ -9,7 +9,7 @@ When a server takes its scheduled break, this waits it out and hits **Resume** f
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)
 ![SpotiFLAC v7.x](https://img.shields.io/badge/SpotiFLAC-v7.x-1db954)
-![Tests: 36 passing](https://img.shields.io/badge/tests-36%20passing-brightgreen)
+![Tests: 42 passing](https://img.shields.io/badge/tests-42%20passing-brightgreen)
 
 </div>
 
@@ -244,7 +244,7 @@ versions.
 
 ```powershell
 python -m pip install -e ".[dev]"
-python -m pytest                                          # 36 tests, no app needed
+python -m pytest                                          # 42 tests, no app needed
 set PYTHONPATH=src && python tools\focus_check.py         # manual: proves no focus theft
 ```
 

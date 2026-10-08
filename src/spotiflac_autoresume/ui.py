@@ -22,6 +22,36 @@ class UiError(Exception):
 DEFAULT_BREAK_PATTERN = "scheduled short break"
 
 
+_TIME_RE = re.compile(r"^\d{2}:\d{2}:\d{2}$")
+_LEVELS = {"debug", "info", "error", "success", "warning"}
+
+
+def log_rows(texts):
+    """Group the Debug Logs page's text nodes into (time, level, message) rows.
+
+    The page renders each row as '[ HH:MM:SS ] [ level ] message', one text node per piece.
+    """
+    toks = [t for t in texts if t not in ("[", "]")]
+    rows, i = [], 0
+    while i < len(toks) - 2:
+        if _TIME_RE.match(toks[i]) and toks[i + 1].lower() in _LEVELS:
+            rows.append((toks[i], toks[i + 1], toks[i + 2]))
+            i += 3
+        else:
+            i += 1
+    return rows
+
+
+def parse_break_rows(rows, pattern=DEFAULT_BREAK_PATTERN):
+    events = []
+    for stamp, _level, msg in rows:
+        if pattern.lower() in msg.lower():
+            m = re.search(r"(?:about|in)\s+(\d+)\s+minute", msg, re.I)
+            events.append({"key": f"{stamp}|{msg[-70:]}", "time": stamp,
+                           "minutes": int(m.group(1)) if m else None})
+    return events
+
+
 def parse_break_events(text, pattern=DEFAULT_BREAK_PATTERN):
     """Find every occurrence of `pattern` in `text` (one log line or a whole log block).
 
@@ -169,13 +199,15 @@ class Session:
         return False
 
     def break_events(self, pattern=DEFAULT_BREAK_PATTERN):
-        """Return [(excerpt, minutes_or_None)] for every break message on the Debug Logs page."""
+        """Break messages on the Debug Logs page: [{'key', 'time', 'minutes'}], oldest first.
+
+        `key` identifies one log row (its timestamp + text), so a break is recognised as new even
+        if the log was cleared or the app was relaunched in between (counting lines is not safe).
+        """
         goto(self.doc, "Debug Logs")
         time.sleep(0.5)
-        events = []
-        for _kind, name in _content_texts(self.doc):
-            events.extend(parse_break_events(name, pattern))
-        return events
+        texts = [name for kind, name in _content_texts(self.doc) if kind == "Text"]
+        return parse_break_rows(log_rows(texts), pattern)
 
     def queue_buttons(self):
         goto(self.doc, "Queue")

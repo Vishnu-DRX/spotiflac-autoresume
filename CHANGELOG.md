@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- **Reboot / crash recovery:** the watcher now notices SpotiFLAC was (re)started (PID tracking), resumes the
+  queue the relaunch leaves paused, and relaunches the app when `queue.db` still claims activity but the
+  process is gone. New keys `resume_after_app_restart`, `restart_settle_seconds`. Tests: 36.
 - **Fix (found in the first overnight run):** after a break the retry arrow leaves the item `pending`, and the app
   needs **Start**. The watcher had counted `pending` as "downloading", logged a false "resume took effect" and
   idled for six hours. Now `pending` is verified with a progress watchdog and **Start** is pressed; a frozen

@@ -25,7 +25,10 @@ def env(monkeypatch):
     class FakeSession:
         def __enter__(self): return self
         def __exit__(self, *a): return False
-        def break_events(self, pattern=None): return list(state["events"])
+        def break_events(self, pattern=None):
+            stamp = time.strftime("%H:%M:%S")
+            return [{"key": f"{i}|{e[0]}", "time": stamp, "minutes": e[1]}
+                    for i, e in enumerate(state["events"])]
 
     monkeypatch.setattr(ui, "Session", FakeSession)
     monkeypatch.setattr(watcher, "load_items", lambda c: state["items"])
@@ -305,3 +308,42 @@ def test_queue_claims_running_but_app_is_gone_relaunches_app(env, monkeypatch):
     state["pid"] = None
     watcher.tick(cfg, st)
     assert launched == [1]
+
+
+# --- regression: second real break was missed because the app's log restarted empty --------------
+
+def test_break_in_a_restarted_log_is_new_even_though_fewer_lines_than_before(env):
+    cfg, state, st = env
+    st["seen_breaks"] = ["02:30:06|old event A", "02:30:07|old event B"]     # two seen in the OLD log
+    state["events"] = [("fresh break in the new log", 120)]                  # new log holds just one
+    watcher.tick(cfg, st)
+    assert 121 < (st["resume_at"] - time.time()) / 60 < 123
+
+
+def test_already_seen_break_is_not_rescheduled(env):
+    cfg, state, st = env
+    state["events"] = [("x", 120)]
+    watcher.tick(cfg, st)
+    st["resume_at"], st["fp"] = None, None            # e.g. watcher restarted, same log still on screen
+    watcher.tick(cfg, st)
+    assert st["resume_at"] is None
+
+
+def test_resume_time_runs_from_the_break_timestamp_not_from_when_it_was_noticed(env, monkeypatch):
+    cfg, state, st = env
+    long_ago = time.strftime("%H:%M:%S", time.localtime(time.time() - 3 * 3600))
+    monkeypatch.setattr(ui.Session, "break_events", lambda self, p=None: [
+        {"key": "k", "time": long_ago, "minutes": 120}], raising=False)
+    class S2:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def break_events(self, p=None): return [{"key": "k", "time": long_ago, "minutes": 120}]
+    monkeypatch.setattr(ui, "Session", S2)
+    watcher.tick(cfg, st)
+    assert st["resume_at"] < time.time()               # 3 h old + 2 h wait: already over -> resume now
+
+
+def test_event_epoch_assumes_yesterday_for_a_time_later_than_now():
+    now = time.mktime((2026, 10, 8, 1, 0, 0, 0, 0, -1))
+    assert watcher.event_epoch("23:50:00", now) == time.mktime((2026, 10, 7, 23, 50, 0, 0, 0, -1))
+    assert watcher.event_epoch("00:30:00", now) == time.mktime((2026, 10, 8, 0, 30, 0, 0, 0, -1))

@@ -1,4 +1,4 @@
-from spotiflac_autoresume.ui import parse_break_events
+from spotiflac_autoresume.ui import log_rows, parse_break_events, parse_break_rows
 
 REAL = ("all requested Tidal qualities failed: failed to get download URL: This is normal and not a bug. "
         "The server is taking a scheduled short break. Please try again in about 120 minute(s).")
@@ -25,3 +25,24 @@ def test_unrelated_errors_are_ignored():
 def test_case_insensitive_and_custom_pattern():
     assert len(parse_break_events("SCHEDULED SHORT BREAK ... in about 5 minutes")) == 1
     assert len(parse_break_events("maintenance window, about 7 minutes", pattern="maintenance window")) == 1
+
+
+# The Debug Logs page renders '[ time ] [ level ] message' as separate text nodes (captured from the live app).
+PAGE = ["Debug Logs", "[", "11:30:02", "]", "[", "success", "]", "downloaded: Paradise - Bazzi",
+        "[", "11:30:06", "]", "[", "error", "]", "Tidal error: Error: all requested Tidal qualities failed: "
+        "failed to get download URL: This is normal and not a bug. The server is taking a scheduled short "
+        "break. Please try again in about 120 minute(s).",
+        "[", "11:30:06", "]", "[", "info", "]", "servers on a scheduled break. pausing downloads."]
+
+
+def test_log_rows_groups_time_level_message():
+    rows = log_rows(PAGE)
+    assert rows[0] == ("11:30:02", "success", "downloaded: Paradise - Bazzi")
+    assert len(rows) == 3 and rows[1][1] == "error"
+
+
+def test_break_rows_carry_timestamp_minutes_and_a_stable_key():
+    ev = parse_break_rows(log_rows(PAGE))
+    assert len(ev) == 1                      # the 'servers on a scheduled break' line is not the pattern
+    assert ev[0]["time"] == "11:30:06" and ev[0]["minutes"] == 120
+    assert ev[0]["key"] == parse_break_rows(log_rows(PAGE))[0]["key"]
