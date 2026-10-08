@@ -21,6 +21,12 @@ watcher resume any pause.
 3. The log should show `SpotiFLAC was (re)started` then `queue was left ['paused'] by the restart:
    resuming in 45 s`. Not there? Check `watch.resume_after_app_restart = true` and `autolaunch.enabled`.
 
+## The queue stopped on a break and the watcher "left it alone"
+Older builds counted log lines and could miss a break after the app was relaunched (fixed). If you still see
+`no new server break in the logs` while the Debug Logs page clearly shows the message, run
+`python -m spotiflac_autoresume probe` (with `PYTHONPATH=src`) and check it lists the event with its time;
+if it doesn't, the log row format has changed, so please open an issue with the probe output.
+
 ## Downloads aren't progressing but the log says everything is fine
 Open the app's **Debug Logs** page (menu **1**, or the app itself) and read the newest lines. The watcher
 only acts on the *scheduled break* message. Other failures just fail tracks one by one:

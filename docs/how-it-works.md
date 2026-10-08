@@ -73,6 +73,14 @@ in the row's ACTIONS column: a neutral **retry arrow** and a red **remove** butt
 
 When you pause a queue yourself the item is `paused` and the header shows **Resume All**.
 
+### Recognising a break
+
+Each Debug Logs row is `[HH:MM:SS] [level] message`. A break is identified by its **timestamp + text**, and
+the watcher remembers the keys it has handled. (The first version *counted* matching lines; when the app
+relaunched, its log restarted empty, one new break looked like "fewer lines than before", and a real break
+went unnoticed for two hours.) The resume time is computed from the row's own timestamp, so a break
+noticed late, or already over, resumes immediately instead of waiting a second full period.
+
 ## The decision loop (`watcher.tick`)
 
 ```
@@ -82,7 +90,7 @@ read queue.db
 └─ stalled (paused / partial / failed)
    ├─ queue state changed since last look?
    │    open Debug Logs, count break messages
-   │    ├─ more than last time → resume_at = now + (announced + margin) min
+   │    ├─ a break message not seen before → resume_at = its log timestamp + (announced + margin) min
    │    ├─ none new, resume_unexplained_pauses → resume_at = now
    │    └─ none new → leave it alone (assume the user paused it)
    ├─ resume_at reached?
@@ -153,7 +161,7 @@ A tick can legitimately take ~2 minutes (UI work plus the 40 s settle wait), hen
 `status` also shows what the watcher is doing, the queue counts, when the next resume or sync is due,
 and the last log lines. `watch` redraws it every 2 s; `menu.bat` wraps all of it.
 
-State between ticks lives in `state.json` (break count seen, pending `resume_at`, retries, a queue
+State between ticks lives in `state.json` (keys of the break messages already handled, pending `resume_at`, retries, a queue
 fingerprint, progress, last sync time). Files never committed: `config.toml`, `state.json`,
 `heartbeat`, `watcher.log`, `PAUSE`.
 

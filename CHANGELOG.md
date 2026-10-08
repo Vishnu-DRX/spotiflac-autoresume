@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- **Fix (second overnight finding):** a second scheduled break was missed because breaks were detected by
+  *counting* log lines and the app's log restarts empty on relaunch. Breaks are now identified by log
+  timestamp + text, and the resume time runs from the break's own timestamp. Regression tests added (42 total).
+- `tools/lock_test.py`: probe whether UI automation works while the session is locked.
 - **Reboot / crash recovery:** the watcher now notices SpotiFLAC was (re)started (PID tracking), resumes the
   queue the relaunch leaves paused, and relaunches the app when `queue.db` still claims activity but the
   process is gone. New keys `resume_after_app_restart`, `restart_settle_seconds`. Tests: 36.
