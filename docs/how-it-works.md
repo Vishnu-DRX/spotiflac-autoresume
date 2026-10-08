@@ -39,7 +39,9 @@ queue item:
  "trackResults": {"<spotify id>": "done|skipped|failed", "...": "..."}}
 ```
 
-Item `status` values seen so far: `pending`, `running`, `paused`, `partial`. Per-track results are
+Item `status` values seen so far: `pending`, `running`, `paused`, `partial`. **`pending` means queued but not
+being processed**: after a retry arrow or an app relaunch the app waits for **Start**. Treating `pending` as
+"downloading" cost the first overnight run six hours (see below). Per-track results are
 `done`, `skipped` (file already exists) and `failed`; tracks the app never reached have no entry.
 The *error text* is **not** stored in the database, which is why the logs page is consulted.
 
@@ -75,7 +77,7 @@ When you pause a queue yourself the item is `paused` and the header shows **Resu
 
 ```
 read queue.db
-├─ any item running/pending                → nothing to do (reset pending wait)
+├─ any item running/pending                → trust it only while counters move (see below)
 ├─ nothing stalled                         → idle: maybe run a playlist sync (see below)
 └─ stalled (paused / partial / failed)
    ├─ queue state changed since last look?
@@ -86,10 +88,16 @@ read queue.db
    ├─ resume_at reached?
    │    ├─ retries >= max → give up, notify
    │    ├─ press "Resume All"; if absent, the row's retry arrow
-   │    ├─ wait 40 s, check queue.db shows it running
+   │    ├─ wait 40 s; item still `pending`? press "Start"
+   │    ├─ check queue.db shows it `running`
    │    └─ not running → fall back: fetch the playlist URL again and press "Add to Queue"
    └─ otherwise, and no resume pending → maybe run a playlist sync
 ```
+
+**Active-queue watchdog (`watch_active`).** Even a queue that claims to be active is checked: if the
+`done+skipped+failed` counters haven't moved for `pending_start_after_minutes` (2) and the item is `pending`,
+the watcher presses **Start** (at most once per 5 min); if it is `running` but frozen for `stuck_minutes` (20),
+it logs a warning and notifies, because pressing Start can't fix that.
 
 Retries reset whenever the done+skipped count grows, so a long job that hits many breaks is not
 "given up on" while it makes progress. The UI is only touched when the queue is stalled *and*

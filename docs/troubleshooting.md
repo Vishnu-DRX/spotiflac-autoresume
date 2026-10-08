@@ -14,6 +14,15 @@ Working as intended: the queue is stopped but SpotiFLAC's logs show no break, so
 you paused it. Resume it yourself (menu **4**), or set `resume_unexplained_pauses = true` to let the
 watcher resume any pause.
 
+## Downloads aren't progressing but the log says everything is fine
+Open the app's **Debug Logs** page (menu **1**, or the app itself) and read the newest lines. The watcher
+only acts on the *scheduled break* message. Other failures just fail tracks one by one:
+- `Tidal ... 403 {"detail":"Upstream auth error"}`: Tidal's community API is rejecting requests. Nothing to
+  wait out; try later, or update SpotiFLAC. Each track can take ~2 min to fail, so a big queue crawls.
+- `Amazon API returned status 409` / `track not found`: that source can't serve the track.
+Queue stuck at `pending`? The watcher presses **Start** after `pending_start_after_minutes`; if you see
+`queue pending for N min ... pressed 'Start'` in the log, that's it working.
+
 ## A break happened but nothing resumed
 1. `python -m spotiflac_autoresume probe` prints the break messages found on the Debug Logs page and
    the buttons visible on the Queue page.

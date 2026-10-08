@@ -9,7 +9,7 @@ When a server takes its scheduled break, this waits it out and hits **Resume** f
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)
 ![SpotiFLAC v7.x](https://img.shields.io/badge/SpotiFLAC-v7.x-1db954)
-![Tests: 25 passing](https://img.shields.io/badge/tests-25%20passing-brightgreen)
+![Tests: 30 passing](https://img.shields.io/badge/tests-30%20passing-brightgreen)
 
 </div>
 
@@ -140,6 +140,8 @@ Menu option **C** shows the settings actually in use and flags paths that don't 
 | `watch.max_retries_per_batch` | `6` | Give up after this many resumes with no progress |
 | `watch.resume_unexplained_pauses` | `false` | Also resume pauses with no break in the logs |
 | `watch.dry_run` | `false` | Log what would be clicked, click nothing |
+| `watch.pending_start_after_minutes` | `2` | Queue `pending` with no progress this long → press **Start** |
+| `watch.stuck_minutes` | `20` | Queue `running` but nothing moves this long → warn + notify |
 | `sync.enabled` | `false` | Turn on [playlist sync](#-optional-playlist-sync) |
 | `sync.mode` | `interval` | `interval` (every N hours) or `on_idle` (whenever the queue is empty) |
 | `sync.interval_hours` | `6` | Gap between syncs in `interval` mode |
@@ -205,6 +207,9 @@ SpotiFLAC, its queue and your music are never touched.
 
 ## Known limitations
 
+- **Other server failures aren't breaks.** If a source returns something else (e.g. Tidal `403 Upstream auth error`),
+  there is no announced wait for the watcher to follow; the app just fails tracks one by one. Check the app's
+  **Debug Logs** page. The watcher only acts on the scheduled-break message.
 - **The post-break resume is the least-tested part.** Break *detection* has been verified on a real
   scheduled break (message found, wait parsed, resume scheduled). After a break the app ends the item
   as "Completed with Issues" with no *Resume All*; the watcher then presses the row's retry arrow and, if
@@ -224,7 +229,7 @@ versions.
 
 ```powershell
 python -m pip install -e ".[dev]"
-python -m pytest                                          # 25 tests, no app needed
+python -m pytest                                          # 30 tests, no app needed
 set PYTHONPATH=src && python tools\focus_check.py         # manual: proves no focus theft
 ```
 

@@ -171,3 +171,78 @@ def test_duration_formatting():
     assert watcher._dur(75) == "1m 15s"
     assert watcher._dur(2 * 3600 + 5 * 60) == "2h 05m"
     assert watcher._dur(-5) == "0m 00s"
+
+
+# --- regressions from the first overnight run: 'pending' is not 'downloading' -------------------
+
+@pytest.fixture
+def starts(env, monkeypatch):
+    cfg, state, st = env
+    cfg["watch"]["dry_run"] = False
+    calls = []
+
+    def fake_press_start(c, why):
+        calls.append(why)
+        state["items"] = [item("running", skipped=392)]
+        return True
+
+    monkeypatch.setattr(watcher, "press_start", fake_press_start)
+    return cfg, state, st, calls
+
+
+def test_pending_queue_with_no_progress_gets_start_pressed(starts):
+    cfg, state, st, calls = starts
+    state["items"] = [item("pending", done=0, skipped=392)]
+    watcher.tick(cfg, st)                          # first look: records the counters
+    st["moved_at"] -= 3 * 60                       # ...and nothing has moved for 3 minutes
+    watcher.tick(cfg, st)
+    assert len(calls) == 1
+
+
+def test_pending_queue_that_is_progressing_is_left_alone(starts):
+    cfg, state, st, calls = starts
+    state["items"] = [item("pending", skipped=100)]
+    watcher.tick(cfg, st)
+    st["moved_at"] -= 3 * 60
+    state["items"] = [item("pending", skipped=150)]   # counters moved
+    watcher.tick(cfg, st)
+    assert calls == []
+
+
+def test_start_is_not_spammed(starts):
+    cfg, state, st, calls = starts
+    state["items"] = [item("pending", skipped=392)]
+    watcher.tick(cfg, st)
+    st["moved_at"] -= 3 * 60
+    watcher.tick(cfg, st)
+    state["items"] = [item("pending", skipped=392)]
+    st["moved_at"] -= 3 * 60
+    watcher.tick(cfg, st)                          # within the 5-minute cooldown
+    assert len(calls) == 1
+
+
+def test_running_but_frozen_queue_warns_once_and_never_presses_start(starts):
+    cfg, state, st, calls = starts
+    state["items"] = [item("running", skipped=392)]
+    watcher.tick(cfg, st)
+    st["moved_at"] -= 25 * 60
+    watcher.tick(cfg, st)
+    watcher.tick(cfg, st)
+    assert calls == [] and st["stuck_warned"] is True
+
+
+def test_resume_that_leaves_queue_pending_presses_start(starts, monkeypatch):
+    cfg, state, st, calls = starts
+    state["events"] = [("x", 5)]
+    state["items"] = [item("partial", skipped=392, failed=1)]
+    watcher.tick(cfg, st)                          # schedules the resume
+    st["resume_at"] = time.time() - 1
+
+    def retry_arrow(c, s):                         # what pressing the row retry arrow really does
+        state["items"] = [item("pending", skipped=392)]
+        return True
+
+    monkeypatch.setattr(watcher, "do_resume", retry_arrow)
+    watcher.tick(cfg, st)
+    assert calls == ["resume left the queue pending"]
+    assert st["fp"] is not None                    # recognised as success: queue now running

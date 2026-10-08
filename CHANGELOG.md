@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- **Fix (found in the first overnight run):** after a break the retry arrow leaves the item `pending`, and the app
+  needs **Start**. The watcher had counted `pending` as "downloading", logged a false "resume took effect" and
+  idled for six hours. Now `pending` is verified with a progress watchdog and **Start** is pressed; a frozen
+  `running` queue triggers a warning. Regression tests added (30 total).
 - Docs: README, how-it-works and troubleshooting brought in line with the post-break behaviour, sync,
   heartbeat status and menu.
 - `menu.bat`: interactive text menu (status, pause/resume, resume now, sync now, view/edit config, logs,

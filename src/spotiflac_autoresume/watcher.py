@@ -28,7 +28,8 @@ from . import bbolt_read, ui
 HERE = Path(os.environ.get("SPOTIFLAC_AUTORESUME_HOME") or Path(__file__).resolve().parents[2])
 CFG_PATH, STATE_PATH, PAUSE_PATH = HERE / "config.toml", HERE / "state.json", HERE / "PAUSE"
 
-ACTIVE = {"running", "queued", "pending", "downloading", "fetching"}
+PENDING = {"pending", "queued"}          # in the queue but NOT being processed until Start is pressed
+ACTIVE = {"running", "downloading", "fetching"} | PENDING
 FINISHED = {"completed", "complete", "done", "finished", "cancelled", "canceled"}
 
 log = logging.getLogger("autoresume")
@@ -180,6 +181,39 @@ def maybe_sync(cfg, st):
     st["fp"] = None                          # new queue state -> re-read the logs if it stops
 
 
+def press_start(cfg, why):
+    if cfg["watch"]["dry_run"]:
+        log.info("[dry_run] would press Start (%s)", why)
+        return False
+    with ui.Session() as s:
+        pressed = s.click_queue_button("Start")
+    log.info("%s: pressed %r", why, pressed)
+    return bool(pressed)
+
+
+def watch_active(cfg, st, items):
+    """The queue claims to be active. Trust it only while counters move.
+
+    'pending' means queued but not processing (the app needs Start, e.g. after a relaunch or a
+    retry arrow); 'running' with no movement for a long time means something is wedged.
+    """
+    w = cfg["watch"]
+    now = time.time()
+    moved = sum(i["done"] + i["skipped"] + i["failed"] for i in items)
+    if moved != st.get("moved") or st.get("moved_at") is None:
+        st["moved"], st["moved_at"], st["stuck_warned"] = moved, now, False
+        return
+    idle_min = (now - st["moved_at"]) / 60
+    pending = any(i["status"] in PENDING for i in items)
+    if pending and idle_min >= w.get("pending_start_after_minutes", 2) and now - st.get("last_start", 0) > 300:
+        st["last_start"] = now
+        press_start(cfg, f"queue pending for {idle_min:.0f} min with no progress")
+    elif not pending and idle_min >= w.get("stuck_minutes", 20) and not st.get("stuck_warned"):
+        st["stuck_warned"] = True
+        log.warning("queue says 'running' but nothing has moved for %.0f min", idle_min)
+        notify(cfg, "SpotiFLAC auto-resume", f"Queue shows running but no progress for {idle_min:.0f} min.")
+
+
 def tick(cfg, st):
     w = cfg["watch"]
     items = load_items(cfg)
@@ -194,6 +228,7 @@ def tick(cfg, st):
     if any(i["status"] in ACTIVE for i in items):
         st["resume_at"] = None
         st["fp"] = fp
+        watch_active(cfg, st, items)
         return
 
     stalled = [i for i in items if i["status"] not in FINISHED]
@@ -246,7 +281,13 @@ def tick(cfg, st):
         if do_resume(cfg, st):
             time.sleep(40)
             after = load_items(cfg)
-            ok = any(i["status"] in ACTIVE for i in after)
+            running = lambda items: any(i["status"] in ACTIVE - PENDING for i in items)
+            if not running(after) and any(i["status"] in PENDING for i in after):
+                # the retry arrow / Resume only re-queued the work; the app still needs Start
+                press_start(cfg, "resume left the queue pending")
+                time.sleep(10)
+                after = load_items(cfg)
+            ok = running(after)
             log.info("resume %s (attempt %d)", "took effect" if ok else "did not start the queue",
                      st["retries"])
             if ok:
@@ -258,7 +299,8 @@ def tick(cfg, st):
                 if urls:
                     log.info("falling back to re-adding %d playlist(s)", len(urls))
                     readd(sorted(urls))
-                    ok = any(i["status"] in ACTIVE for i in load_items(cfg))
+                    time.sleep(10)
+                    ok = running(load_items(cfg))
             # not started -> forget the fingerprint so the next tick re-reads the logs for a new break
             st["fp"] = fingerprint(load_items(cfg)) if ok else None
         return

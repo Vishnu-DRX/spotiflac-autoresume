@@ -10,12 +10,14 @@ queue_db = '~\.spotiflac\queue.db'
 
 [watch]
 poll_seconds              = 60     # how often queue.db is checked (cheap; the UI is not touched)
-break_pattern             = "scheduled short break"   # informational: the only error that triggers a wait
+break_pattern             = "scheduled short break"   # text that identifies a server-break message
 safety_margin_minutes     = 2      # added to the wait the server announces
 default_wait_minutes      = 30     # used when a break message carries no number
 max_retries_per_batch     = 6      # give up after this many resumes without any progress
 resume_unexplained_pauses = false  # true = also resume pauses that show no break in the logs
 dry_run                   = false  # true = log what would be clicked, click nothing
+pending_start_after_minutes = 2   # queue sits 'pending' with no progress this long -> press Start
+stuck_minutes             = 20   # 'running' but nothing moves this long -> warn + notify
 
 [sync]
 # Optional playlist sync: re-add these playlists so tracks you've added since the last run get
