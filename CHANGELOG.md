@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- **Fix:** a console window flashed once or twice a minute: the `tasklist` process check ran without
+  `CREATE_NO_WINDOW`. All child processes now share one `NO_WINDOW` flag.
 - **Fix (second overnight finding):** a second scheduled break was missed because breaks were detected by
   *counting* log lines and the app's log restarts empty on relaunch. Breaks are now identified by log
   timestamp + text, and the resume time runs from the break's own timestamp. Regression tests added (42 total).

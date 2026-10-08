@@ -70,10 +70,13 @@ def fingerprint(items):
     return json.dumps([(i["name"], i["status"], i["done"], i["skipped"], i["failed"]) for i in items])
 
 
+NO_WINDOW = 0x08000000   # CREATE_NO_WINDOW: without it every console child flashes a window under pythonw
+
+
 def app_pid():
     """PID of the running SpotiFLAC.exe, or None."""
     out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq SpotiFLAC.exe", "/FO", "CSV", "/NH"],
-                         capture_output=True, text=True).stdout
+                         capture_output=True, text=True, creationflags=NO_WINDOW).stdout
     m = re.search(r'"SpotiFLAC\.exe","(\d+)"', out)
     return int(m.group(1)) if m else None
 
@@ -87,7 +90,7 @@ def app_age_seconds(pid):
     ps = f"[int]((Get-Date)-(Get-Process -Id {int(pid)}).StartTime).TotalSeconds"
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True,
-                             text=True, creationflags=0x08000000, timeout=20).stdout.strip()
+                             text=True, creationflags=NO_WINDOW, timeout=20).stdout.strip()
         return int(out)
     except (ValueError, subprocess.SubprocessError, OSError):
         return None
@@ -123,7 +126,7 @@ def notify(cfg, title, text):
           "$n=New-Object System.Windows.Forms.NotifyIcon;$n.Icon=[System.Drawing.SystemIcons]::Information;"
           f"$n.Visible=$true;$n.ShowBalloonTip(8000,'{title}','{text}','Info');Start-Sleep 9;$n.Dispose()")
     subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
-                     creationflags=0x08000000)
+                     creationflags=NO_WINDOW)
 
 
 def ensure_app(cfg):
