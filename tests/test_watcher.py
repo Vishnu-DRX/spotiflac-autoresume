@@ -20,7 +20,7 @@ def env(monkeypatch):
         "autolaunch": {"enabled": False, "wait_seconds": 1},
         "notify": {"enabled": False},
     }
-    state = {"items": [item("paused")], "events": [], "presses": 0}
+    state = {"items": [item("paused")], "events": [], "presses": 0, "pid": 100, "age": 99999}
 
     class FakeSession:
         def __enter__(self): return self
@@ -29,7 +29,9 @@ def env(monkeypatch):
 
     monkeypatch.setattr(ui, "Session", FakeSession)
     monkeypatch.setattr(watcher, "load_items", lambda c: state["items"])
-    monkeypatch.setattr(watcher, "app_running", lambda: True)
+    monkeypatch.setattr(watcher, "app_running", lambda: state["pid"] is not None)
+    monkeypatch.setattr(watcher, "app_pid", lambda: state["pid"])
+    monkeypatch.setattr(watcher, "app_age_seconds", lambda pid: state["age"])
     monkeypatch.setattr(watcher.time, "sleep", lambda s: None)
     monkeypatch.setattr(watcher, "do_resume", lambda c, s: state.__setitem__("presses", state["presses"] + 1) or True)
     st = {"break_count": 0, "resume_at": None, "retries": 0, "fp": None, "progress": 0}
@@ -246,3 +248,60 @@ def test_resume_that_leaves_queue_pending_presses_start(starts, monkeypatch):
     watcher.tick(cfg, st)
     assert calls == ["resume left the queue pending"]
     assert st["fp"] is not None                    # recognised as success: queue now running
+
+
+# --- shutdown / reboot / crash: a relaunched app comes up with the queue paused -----------------
+
+def test_long_running_app_with_a_user_pause_is_not_treated_as_a_restart(env):
+    cfg, state, st = env                     # fresh state file, app already up for ~27 h
+    watcher.tick(cfg, st)
+    assert st["resume_at"] is None and st.get("restart_until", 0) == 0
+
+
+def test_freshly_started_app_on_first_look_resumes_a_paused_queue(env):
+    cfg, state, st = env
+    state["age"] = 30                        # the watcher started right after the app did (logon)
+    watcher.tick(cfg, st)
+    assert 0 < st["resume_at"] - time.time() <= 46
+
+
+def test_app_closed_then_reopened_resumes_without_a_break_message(env):
+    cfg, state, st = env
+    watcher.tick(cfg, st)                    # normal: app up, queue paused by the user
+    assert st["resume_at"] is None
+    state["pid"] = None                      # user shut down / app crashed
+    watcher.tick(cfg, st)
+    state["pid"] = 200                       # PC back on, app relaunched, queue paused
+    watcher.tick(cfg, st)
+    assert st["resume_at"] is not None
+
+
+def test_restart_resume_actually_presses_resume(env):
+    cfg, state, st = env
+    state["pid"] = None
+    watcher.tick(cfg, st)
+    state["pid"] = 200
+    watcher.tick(cfg, st)
+    st["resume_at"] = time.time() - 1
+    watcher.tick(cfg, st)
+    assert state["presses"] == 1
+
+
+def test_restart_resume_can_be_turned_off(env):
+    cfg, state, st = env
+    cfg["watch"]["resume_after_app_restart"] = False
+    state["pid"] = None
+    watcher.tick(cfg, st)
+    state["pid"] = 200
+    watcher.tick(cfg, st)
+    assert st["resume_at"] is None
+
+
+def test_queue_claims_running_but_app_is_gone_relaunches_app(env, monkeypatch):
+    cfg, state, st = env
+    launched = []
+    monkeypatch.setattr(watcher, "ensure_app", lambda c: launched.append(1) or True)
+    state["items"] = [item("running", skipped=392)]    # stale status left by a shutdown
+    state["pid"] = None
+    watcher.tick(cfg, st)
+    assert launched == [1]

@@ -14,6 +14,13 @@ Working as intended: the queue is stopped but SpotiFLAC's logs show no break, so
 you paused it. Resume it yourself (menu **4**), or set `resume_unexplained_pauses = true` to let the
 watcher resume any pause.
 
+## After a reboot nothing resumed
+1. Did you sign in? The watcher only runs after logon (no auto sign-in = nothing before the password).
+2. `status` should say ● ACTIVE within a minute or two of signing in. If ○ NOT RUNNING, run
+   `scriptsutoresume.ps1 start` and check the scheduled task.
+3. The log should show `SpotiFLAC was (re)started` then `queue was left ['paused'] by the restart:
+   resuming in 45 s`. Not there? Check `watch.resume_after_app_restart = true` and `autolaunch.enabled`.
+
 ## Downloads aren't progressing but the log says everything is fine
 Open the app's **Debug Logs** page (menu **1**, or the app itself) and read the newest lines. The watcher
 only acts on the *scheduled break* message. Other failures just fail tracks one by one:

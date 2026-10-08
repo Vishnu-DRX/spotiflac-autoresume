@@ -9,7 +9,7 @@ When a server takes its scheduled break, this waits it out and hits **Resume** f
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)
 ![SpotiFLAC v7.x](https://img.shields.io/badge/SpotiFLAC-v7.x-1db954)
-![Tests: 30 passing](https://img.shields.io/badge/tests-30%20passing-brightgreen)
+![Tests: 36 passing](https://img.shields.io/badge/tests-36%20passing-brightgreen)
 
 </div>
 
@@ -121,6 +121,19 @@ The first line is the answer to "is it on?": **● ACTIVE** (green), **◐ PAUSE
 **○ NOT RUNNING** (red). It's based on a heartbeat the watcher writes every cycle, so a hung
 watcher shows up as not running instead of looking fine.
 
+## Sleep, hibernate, shutdown
+
+| You do | What happens |
+|---|---|
+| **Sleep / hibernate** | Safe. Windows freezes and restores every process, so SpotiFLAC and the watcher carry on exactly where they were. A track mid-download may fail on the network drop; the queue continues. |
+| **Shut down / restart / crash** | When you sign in, the scheduled task starts the watcher. It relaunches SpotiFLAC (minimized) if work remains. A relaunched app always comes up with its queue **paused**, so the watcher notices the restart and resumes it (`resume_after_app_restart`), then presses **Start** if the queue is left `pending`. |
+| **Lock the screen** | Not tested. UI Automation may not be able to press buttons on a locked session; to be safe, don't lock a PC you want to keep downloading. A display that just turns off is fine. |
+
+> [!IMPORTANT]
+> The watcher drives your desktop, so it can only run **after you sign in**. If the PC reboots
+> (a Windows update, a power cut) and sits at the sign-in screen, nothing downloads until you
+> log in. Enabling Windows auto sign-in is your call; the tool never touches that setting.
+
 ## Configuration
 
 Edit `config.toml` (menu option **7**, or any editor); the menu restarts the watcher for you afterwards.
@@ -142,6 +155,8 @@ Menu option **C** shows the settings actually in use and flags paths that don't 
 | `watch.dry_run` | `false` | Log what would be clicked, click nothing |
 | `watch.pending_start_after_minutes` | `2` | Queue `pending` with no progress this long → press **Start** |
 | `watch.stuck_minutes` | `20` | Queue `running` but nothing moves this long → warn + notify |
+| `watch.resume_after_app_restart` | `true` | SpotiFLAC was (re)started and left the queue paused (reboot, crash) → resume it |
+| `watch.restart_settle_seconds` | `45` | Let the app load its queue this long before resuming |
 | `sync.enabled` | `false` | Turn on [playlist sync](#-optional-playlist-sync) |
 | `sync.mode` | `interval` | `interval` (every N hours) or `on_idle` (whenever the queue is empty) |
 | `sync.interval_hours` | `6` | Gap between syncs in `interval` mode |
@@ -229,7 +244,7 @@ versions.
 
 ```powershell
 python -m pip install -e ".[dev]"
-python -m pytest                                          # 30 tests, no app needed
+python -m pytest                                          # 36 tests, no app needed
 set PYTHONPATH=src && python tools\focus_check.py         # manual: proves no focus theft
 ```
 

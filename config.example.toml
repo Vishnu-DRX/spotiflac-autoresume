@@ -18,6 +18,8 @@ resume_unexplained_pauses = false  # true = also resume pauses that show no brea
 dry_run                   = false  # true = log what would be clicked, click nothing
 pending_start_after_minutes = 2   # queue sits 'pending' with no progress this long -> press Start
 stuck_minutes             = 20   # 'running' but nothing moves this long -> warn + notify
+resume_after_app_restart  = true   # SpotiFLAC (re)started with a paused queue (reboot/crash) -> resume it
+restart_settle_seconds    = 45     # how long to let the app load its queue first
 
 [sync]
 # Optional playlist sync: re-add these playlists so tracks you've added since the last run get

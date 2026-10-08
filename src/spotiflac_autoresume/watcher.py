@@ -13,14 +13,14 @@ Resume in the app. Nothing here talks to the download servers.
 import json
 import logging
 import logging.handlers
+import os
+import re
 import subprocess
 import sys
 import time
 import tomllib
 from collections import Counter
 from pathlib import Path
-
-import os
 
 from . import bbolt_read, ui
 
@@ -70,10 +70,50 @@ def fingerprint(items):
     return json.dumps([(i["name"], i["status"], i["done"], i["skipped"], i["failed"]) for i in items])
 
 
-def app_running():
-    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq SpotiFLAC.exe", "/NH"],
+def app_pid():
+    """PID of the running SpotiFLAC.exe, or None."""
+    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq SpotiFLAC.exe", "/FO", "CSV", "/NH"],
                          capture_output=True, text=True).stdout
-    return "SpotiFLAC.exe" in out
+    m = re.search(r'"SpotiFLAC\.exe","(\d+)"', out)
+    return int(m.group(1)) if m else None
+
+
+def app_running():
+    return app_pid() is not None
+
+
+def app_age_seconds(pid):
+    """How long ago that process started (None if it can't be determined)."""
+    ps = f"[int]((Get-Date)-(Get-Process -Id {int(pid)}).StartTime).TotalSeconds"
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True,
+                             text=True, creationflags=0x08000000, timeout=20).stdout.strip()
+        return int(out)
+    except (ValueError, subprocess.SubprocessError, OSError):
+        return None
+
+
+def note_app_restart(cfg, st):
+    """Detect that SpotiFLAC was (re)started since the last tick and open a short window in which
+    a stalled queue is resumed without needing a break message.
+
+    A relaunched app always comes up with its queue paused and its logs empty, so without this a
+    reboot or crash would leave the queue paused until someone pressed Resume.
+    """
+    pid = app_pid()
+    prev = st.get("app_pid", "unset")        # "unset": this state file has never seen the app
+    st["app_pid"] = pid
+    if pid is None or pid == prev:
+        return
+    if prev == "unset":
+        # no history to compare with: only a *fresh* process counts as a restart, otherwise a
+        # pause you set in a long-running app would be overridden when the watcher (re)starts
+        age = app_age_seconds(pid)
+        if age is None or age > 600:
+            return
+    if cfg["watch"].get("resume_after_app_restart", True):
+        st["restart_until"] = time.time() + 900
+        log.info("SpotiFLAC was (re)started: will resume a stalled queue without waiting for a break message")
 
 
 def notify(cfg, title, text):
@@ -224,8 +264,16 @@ def tick(cfg, st):
     if progress > st.get("progress", 0):
         st["retries"] = 0
     st["progress"] = progress
+    note_app_restart(cfg, st)
 
     if any(i["status"] in ACTIVE for i in items):
+        if not app_running():
+            # queue.db still says active but the app is gone (shutdown, crash): bring it back;
+            # the next tick sees the new process and resumes the (then paused) queue
+            log.info("queue shows %s but SpotiFLAC is not running", [i["status"] for i in items])
+            st["fp"] = None
+            ensure_app(cfg)
+            return
         st["resume_at"] = None
         st["fp"] = fp
         watch_active(cfg, st, items)
@@ -241,6 +289,16 @@ def tick(cfg, st):
         st["retries"] = 0
         st["fp"] = fp
         maybe_sync(cfg, st)
+        return
+
+    # SpotiFLAC was just (re)started and left the queue paused: that is the restart's doing,
+    # not a pause the user chose, so resume after a short settle time (no break message needed).
+    if stalled and st.get("restart_until", 0) > time.time() and st.get("resume_at") is None:
+        st["restart_until"] = 0
+        settle = w.get("restart_settle_seconds", 45)
+        st["resume_at"] = time.time() + settle
+        st["fp"] = fp
+        log.info("queue was left %s by the restart: resuming in %d s", [i["status"] for i in stalled], settle)
         return
 
     # Queue changed since last look (or a resume is pending): decide why it stopped.

@@ -108,6 +108,23 @@ still-active break it stops at the first real download instead of hammering the 
 777-track playlist with 392 files on disk, a re-add skipped all 392 locally within a couple of minutes (not timed precisely) and
 re-downloaded nothing.
 
+## Restarts, reboots and crashes
+
+A relaunched SpotiFLAC converts whatever was running to **paused** and empties its debug log, so the
+usual rule ("paused with no break message → the user paused it, leave it alone") would strand the queue
+after every reboot. Instead the watcher remembers the app's PID in `state.json`:
+
+- PID changed, or the app was closed at the previous tick and is open now → a **restart** was seen.
+- No PID on record (new state file): only a process younger than 10 minutes counts as a restart, so a
+  pause you set in a long-running app survives the watcher itself being restarted.
+- After a restart, a stalled queue is resumed after `restart_settle_seconds`, via the normal ladder
+  (Resume All / retry arrow, then **Start** if the item is left `pending`, then re-add).
+- If `queue.db` still says `running` but the app process is gone (shutdown mid-download), the watcher
+  relaunches the app first (needs `autolaunch.enabled`).
+
+The watcher itself is a per-user scheduled task that triggers **at logon**: it needs your desktop
+session to drive the app, so nothing happens between boot and sign-in.
+
 ## Playlist sync
 
 With `[sync]` enabled, the watcher periodically (`interval`) or whenever the queue is empty
